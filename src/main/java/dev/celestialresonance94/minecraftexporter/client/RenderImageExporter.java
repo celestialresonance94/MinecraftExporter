@@ -253,10 +253,9 @@ public final class RenderImageExporter {
 
             bufferSource.endBatch();
             // Restore the game's own lighting state before popping/returning,
-            // so subsequent in-game rendering is not left on the item-preview
+            // so subsequent in-game rendering is not left on the fixed-brightness
             // setup we applied inside renderItemCentered.
-            Lighting.setupForDefaultEntityRenderer();
-            RenderSystem.setShaderLights();
+            Lighting.setupFor3DItems();
             poseStack.popPose();
 
             // Restore the game's projection before reading pixels, as Wiki Zoomer does.
@@ -316,23 +315,22 @@ public final class RenderImageExporter {
 
         BakedModel model = minecraft.getItemRenderer().getModel(stack, minecraft.level, null, 0);
         if (model.isGui3d()) {
-            // Vanilla renders GUI block items through a tilted view matrix
-            // (-30 deg X pitch, +45 deg Y yaw) plus an extra +90 deg yaw for
-            // the cube. The exporter's flat screen-aligned orthographic
-            // projection exposed those rotations directly, which is why the
-            // cubes looked slanted diagonally and turned to one side instead
-            // of squarely facing the viewer. We now skip vanilla's transform
-            // (NONE display context below) and pose the cube ourselves with
-            // the same net orientation: pitch down 30 deg, yaw 45 deg + the
-            // block-item quarter turn. Result: top face on top, two side faces
-            // angled symmetric left/right - the standard inventory preview.
-            poseStack.mulPose(Axis.XP.rotationDegrees(-30.0F));
+            // Pose the cube like vanilla's inventory preview: pitch up 30 deg,
+            // yaw 135 deg (45 deg + the block-item quarter turn). Result: top
+            // face on top, two side faces angled symmetric left/right.
+            poseStack.mulPose(Axis.XP.rotationDegrees(30.0F));
             poseStack.mulPose(Axis.YP.rotationDegrees(135.0F));
-            // Forge 1.20.1's RenderSystem does not expose the GL light-slot
-            // methods (enableLight/lightColor/lightDirection/etc.), so use
-            // vanilla's standard two-light setup, which exists in 1.20.1 and
-            // matches how block items are lit in a normal inventory preview.
-            Lighting.setupFor3DItems();
+            // NOTE: do NOT call Lighting.setupFor3DItems() here. Its light
+            // direction vectors are defined for vanilla's GUI *view* matrix,
+            // which pitches the scene by -30 deg; we bake that pitch into the
+            // model pose instead, so using those vectors verbatim lights the
+            // cube from below (the top face points "away" from the rotated
+            // light). setupForFlatItems() is vanilla's fixed-brightness state
+            // (ambient-only diffuse, no directional dependence on face
+            // normals), so shading comes purely from the baked per-face shade
+            // tint (top 1.0 / N-S 0.8 / E-W 0.6) plus block light - exactly
+            // how vanilla keeps previews lit correctly at any rotation.
+            Lighting.setupForFlatItems();
         } else {
             Lighting.setupForFlatItems();
         }
