@@ -22,7 +22,6 @@ import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.event.TickEvent;
 import org.joml.Matrix4f;
-import org.joml.Vector3f;
 import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
@@ -321,7 +320,11 @@ public final class RenderImageExporter {
             // angled symmetric left/right - the standard inventory preview.
             poseStack.mulPose(Axis.XP.rotationDegrees(-30.0F));
             poseStack.mulPose(Axis.YP.rotationDegrees(135.0F));
-            applyExporterBlockLighting();
+            // Forge 1.20.1's RenderSystem does not expose the GL light-slot
+            // methods (enableLight/lightColor/lightDirection/etc.), so use
+            // vanilla's standard two-light setup, which exists in 1.20.1 and
+            // matches how block items are lit in a normal inventory preview.
+            Lighting.setupFor3DItems();
         } else {
             Lighting.setupForFlatItems();
         }
@@ -345,61 +348,6 @@ public final class RenderImageExporter {
         );
 
         poseStack.popPose();
-    }
-
-    /**
-     * Directional lighting for the exported 3D block-item pose. GL light
-     * direction vectors are transformed by the modelview at setup time, so they
-     * must be expressed in world axes for the exact cube pose applied in
-     * {@link #renderItemCentered} (net rotation M = Flip * Rx(30) * Ry(45),
-     * where Flip is the y-flip scale). These two vectors were solved against
-     * that transform so the three visible faces shade like the vanilla
-     * inventory preview - top face brightest, the two side faces evenly lit -
-     * while hidden faces receive no direct light. Mirrors setupFor3DItems'
-     * light colors/ambient state; only the directions differ.
-     */
-    private static void applyExporterBlockLighting() {
-        // Main light: straight at the viewer with a slight upward tilt.
-        Vector3f mainLight = new Vector3f(-0.1F, 0.0F, -0.99F);
-        // Fill light from above and behind-left, lifting the top face to full
-        // brightness (vanilla's second light is exactly this vector).
-        Vector3f secondaryLight = new Vector3f(-0.2F, -1.0F, -0.7F);
-
-        RenderSystem.lightModelAmbientColor(
-                RenderSystem.getDiffuseLightingBackgroundColor());
-        RenderSystem.lightModelTwoSided(true);
-
-        // Light slot 0: main directional light (vanilla color 0.4/0.4/0.4).
-        RenderSystem.unlight(1);
-        RenderSystem.enableLight(0);
-        RenderSystem.lightColor(
-                0,
-                0.4F,
-                0.4F,
-                0.4F
-        );
-        RenderSystem.lightDirection(
-                0,
-                mainLight.x(),
-                mainLight.y(),
-                mainLight.z()
-        );
-
-        // Light slot 1: fill light emphasizing the top face
-        // (vanilla color 0.2/0.2/0.2).
-        RenderSystem.enableLight(1);
-        RenderSystem.lightColor(
-                1,
-                0.2F,
-                0.2F,
-                0.2F
-        );
-        RenderSystem.lightDirection(
-                1,
-                secondaryLight.x(),
-                secondaryLight.y(),
-                secondaryLight.z()
-        );
     }
 
     private static BufferedImage readPixels(int width, int height, RenderTarget target) {
