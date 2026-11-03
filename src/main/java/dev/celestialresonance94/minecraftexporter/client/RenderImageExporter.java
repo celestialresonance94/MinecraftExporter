@@ -6,6 +6,7 @@ import com.mojang.blaze3d.platform.Lighting;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexSorting;
+import com.mojang.math.Axis;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.texture.OverlayTexture;
@@ -13,7 +14,6 @@ import net.minecraft.client.resources.model.BakedModel;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.util.Mth;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemDisplayContext;
 import net.minecraft.world.item.ItemStack;
@@ -317,7 +317,7 @@ public final class RenderImageExporter {
             // inventory preview shows them, and since Lighting's light vector
             // is transformed by the same pose stack, shading rotates with the
             // model and matches the corrected orientation.
-            poseStack.mulPose(new Matrix4f().rotationY(Mth.radians(-90.0F)));
+            poseStack.mulPose(Axis.YP.rotationDegrees(-90.0F));
             Lighting.setupFor3DItems();
         } else {
             Lighting.setupForFlatItems();
