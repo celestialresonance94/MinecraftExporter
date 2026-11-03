@@ -252,7 +252,11 @@ public final class RenderImageExporter {
             );
 
             bufferSource.endBatch();
-            Lighting.setupFor3DItems();
+            // Restore the game's own lighting state before popping/returning,
+            // so subsequent in-game rendering is not left on the item-preview
+            // setup we applied inside renderItemCentered.
+            Lighting.setupForDefaultEntityRenderer();
+            RenderSystem.setShaderLights();
             poseStack.popPose();
 
             // Restore the game's projection before reading pixels, as Wiki Zoomer does.
@@ -298,9 +302,13 @@ public final class RenderImageExporter {
             ItemStack stack,
             int size
     ) {
-        // Slightly larger than the previous default: the old scale left too much
-        // unused transparent space around most item models.
-        float scale = size * 0.75F;
+        // Vanilla GUI block items are drawn at ~32 px in a 16-px cell, i.e.
+        // an effective factor of 2.0 relative to model size (see
+        // ItemRenderer#renderGuiItem: translate(8,8) + scale(16,-16)). The
+        // exporter's orthographic projection spans `size` pixels, so
+        // size * 0.5 reproduces that same on-screen footprint. The previous
+        // 0.75 factor made cubes render 50% larger than vanilla.
+        float scale = size * 0.5F;
 
         poseStack.pushPose();
         poseStack.translate(size / 2.0F, size / 2.0F, 100.0F);
