@@ -22,6 +22,7 @@ import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.event.TickEvent;
 import org.joml.Matrix4f;
+import org.joml.Vector3f;
 import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
@@ -308,26 +309,33 @@ public final class RenderImageExporter {
 
         BakedModel model = minecraft.getItemRenderer().getModel(stack, minecraft.level, null, 0);
         if (model.isGui3d()) {
-            // The block-item path in ItemRenderer applies a fixed +90 deg yaw
-            // because it assumes the vanilla GUI model-view matrix, which tilts
-            // and turns the cube toward the viewer. Our orthographic projection
-            // is screen-aligned instead, so that extra quarter turn leaves the
-            // object sideways and the directional light pointing the wrong way.
-            // Pre-rotating by -90 deg yaw cancels it: faces end up where the
-            // inventory preview shows them, and since Lighting's light vector
-            // is transformed by the same pose stack, shading rotates with the
-            // model and matches the corrected orientation.
-            poseStack.mulPose(Axis.YP.rotationDegrees(-90.0F));
-            Lighting.setupFor3DItems();
+            // Vanilla renders GUI block items through a tilted view matrix
+            // (-30 deg X pitch, +45 deg Y yaw) plus an extra +90 deg yaw for
+            // the cube. The exporter's flat screen-aligned orthographic
+            // projection exposed those rotations directly, which is why the
+            // cubes looked slanted diagonally and turned to one side instead
+            // of squarely facing the viewer. We now skip vanilla's transform
+            // (NONE display context below) and pose the cube ourselves with
+            // the same net orientation: pitch down 30 deg, yaw 45 deg + the
+            // block-item quarter turn. Result: top face on top, two side faces
+            // angled symmetric left/right - the standard inventory preview.
+            poseStack.mulPose(Axis.XP.rotationDegrees(-30.0F));
+            poseStack.mulPose(Axis.YP.rotationDegrees(135.0F));
+            applyExporterBlockLighting();
         } else {
             Lighting.setupForFlatItems();
         }
 
         // Forge 1.20.1: ItemRenderer.render(ItemStack, ItemDisplayContext, boolean leftHanded,
         // PoseStack, MultiBufferSource, int light, int overlay, BakedModel).
+        // NONE keeps renderByItem from adding its own fixed GUI transforms on
+        // top of our explicit pose; flat sprites ignore that branch, so they
+        // keep GUI. Sprite/override resolution is unaffected because
+        // ForgeHooksClient.handleRenderState already maps GUI to NONE when we
+        // fetched the baked model above.
         minecraft.getItemRenderer().render(
                 stack,
-                ItemDisplayContext.GUI,
+                model.isGui3d() ? ItemDisplayContext.NONE : ItemDisplayContext.GUI,
                 false,
                 poseStack,
                 bufferSource,
@@ -337,6 +345,61 @@ public final class RenderImageExporter {
         );
 
         poseStack.popPose();
+    }
+
+    /**
+     * Directional lighting for the exported 3D block-item pose. GL light
+     * direction vectors are transformed by the modelview at setup time, so they
+     * must be expressed in world axes for the exact cube pose applied in
+     * {@link #renderItemCentered} (net rotation M = Flip * Rx(30) * Ry(45),
+     * where Flip is the y-flip scale). These two vectors were solved against
+     * that transform so the three visible faces shade like the vanilla
+     * inventory preview - top face brightest, the two side faces evenly lit -
+     * while hidden faces receive no direct light. Mirrors setupFor3DItems'
+     * light colors/ambient state; only the directions differ.
+     */
+    private static void applyExporterBlockLighting() {
+        // Main light: straight at the viewer with a slight upward tilt.
+        Vector3f mainLight = new Vector3f(-0.1F, 0.0F, -0.99F);
+        // Fill light from above and behind-left, lifting the top face to full
+        // brightness (vanilla's second light is exactly this vector).
+        Vector3f secondaryLight = new Vector3f(-0.2F, -1.0F, -0.7F);
+
+        RenderSystem.lightModelAmbientColor(
+                RenderSystem.getDiffuseLightingBackgroundColor());
+        RenderSystem.lightModelTwoSided(true);
+
+        // Light slot 0: main directional light (vanilla color 0.4/0.4/0.4).
+        RenderSystem.unlight(1);
+        RenderSystem.enableLight(0);
+        RenderSystem.lightColor(
+                0,
+                0.4F,
+                0.4F,
+                0.4F
+        );
+        RenderSystem.lightDirection(
+                0,
+                mainLight.x(),
+                mainLight.y(),
+                mainLight.z()
+        );
+
+        // Light slot 1: fill light emphasizing the top face
+        // (vanilla color 0.2/0.2/0.2).
+        RenderSystem.enableLight(1);
+        RenderSystem.lightColor(
+                1,
+                0.2F,
+                0.2F,
+                0.2F
+        );
+        RenderSystem.lightDirection(
+                1,
+                secondaryLight.x(),
+                secondaryLight.y(),
+                secondaryLight.z()
+        );
     }
 
     private static BufferedImage readPixels(int width, int height, RenderTarget target) {
