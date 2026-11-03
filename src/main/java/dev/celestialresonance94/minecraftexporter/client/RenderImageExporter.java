@@ -14,6 +14,7 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemDisplayContext;
 import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
@@ -140,10 +141,13 @@ public final class RenderImageExporter {
 
     /**
      * Process one image per client tick, matching Wiki Zoomer's queue-based exporter.
-     * Forge 1.20.1 fires ClientTickEvent.End on the render thread after ticking.
+     * Forge 1.20.1 fires ClientTickEvent with a phase (START/END); END runs after ticking.
      */
     @SubscribeEvent
-    public static void onClientTick(ClientTickEvent.Post event) {
+    public static void onClientTick(ClientTickEvent event) {
+        if (event.phase != net.minecraftforge.client.event.ClientTickEvent.Phase.END) {
+            return;
+        }
         if (!running || renderQueued) {
             return;
         }
@@ -307,11 +311,11 @@ public final class RenderImageExporter {
             Lighting.setupForFlatItems();
         }
 
-        // Forge 1.20.1: ItemRenderer.render(ItemStack, boolean guiLighting, PoseStack,
-        // MultiBufferSource, int light, int overlay, BakedModel). The GUI-lighting
-        // overload additionally takes the display context as its second argument.
+        // Forge 1.20.1: ItemRenderer.render(ItemStack, ItemDisplayContext, boolean leftHanded,
+        // PoseStack, MultiBufferSource, int light, int overlay, BakedModel).
         minecraft.getItemRenderer().render(
                 stack,
+                ItemDisplayContext.GUI,
                 true,
                 poseStack,
                 bufferSource,

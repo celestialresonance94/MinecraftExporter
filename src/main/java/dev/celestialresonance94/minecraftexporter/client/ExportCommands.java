@@ -313,7 +313,7 @@ public final class ExportCommands {
 
         // Merge all namespaces. A higher-priority resource for a namespace is returned by getResource.
         for (String namespace : manager.getNamespaces()) {
-            ResourceLocation file = ResourceLocation.fromNamespaceAndPath(namespace, path);
+            ResourceLocation file = new ResourceLocation(namespace, path);
             var resource = manager.getResource(file);
             if (resource.isPresent()) {
                 try (InputStream input = resource.get().open()) {

@@ -42,7 +42,20 @@ minecraft {
     }
 }
 
+repositories {
+    // Only needed for libraries that are not shipped with Forge.
+    // The maven.minecraftforge.net repo is provided automatically by the
+    // net.minecraftforge.gradle plugin, so we don't declare it (or any
+    // NeoForge repository) here.
+}
+
 dependencies {
+    // ForgeGradle 6 will download the Forge userdev artifact from
+    // maven.minecraftforge.net and generate the mapped artifact
+    // (forge-<mc>-<forge>_mapped_<channel>_<version>) itself.
+    // Note: 'forge' must be a String here; do NOT wrap it in a provider
+    // like forge('...') or lazyProviders.forge(...), otherwise FG6 cannot
+    // recognise the dependency and the mapped jar never gets produced.
     minecraft "net.minecraftforge:forge:${minecraft_version}-${forge_version}"
 }
 
