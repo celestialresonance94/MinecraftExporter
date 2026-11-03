@@ -12,10 +12,10 @@ import net.minecraft.core.RegistryAccess;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.item.Item;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
-import net.minecraftforge.client.event.RegisterClientCommandsEvent;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.neoforge.client.event.RegisterClientCommandsEvent;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -42,7 +42,7 @@ import com.mojang.brigadier.arguments.ArgumentType;
 import com.mojang.brigadier.StringReader;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 
-@Mod.EventBusSubscriber(
+@EventBusSubscriber(
         modid = "minecraftexporter",
         value = Dist.CLIENT
 )
@@ -314,7 +314,7 @@ public final class ExportCommands {
 
         // Merge all namespaces. A higher-priority resource for a namespace is returned by getResource.
         for (String namespace : manager.getNamespaces()) {
-            ResourceLocation file = new ResourceLocation(namespace, path);
+            ResourceLocation file = ResourceLocation.fromNamespaceAndPath(namespace, path);
             var resource = manager.getResource(file);
             if (resource.isPresent()) {
                 try (InputStream input = resource.get().open()) {
