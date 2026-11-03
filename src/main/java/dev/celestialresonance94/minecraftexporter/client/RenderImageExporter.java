@@ -252,6 +252,9 @@ public final class RenderImageExporter {
             );
 
             bufferSource.endBatch();
+            // Restore the game's own lighting state before popping/returning,
+            // so subsequent in-game rendering is not left on the fixed-brightness
+            // setup we applied inside renderItemCentered.
             Lighting.setupFor3DItems();
             poseStack.popPose();
 
