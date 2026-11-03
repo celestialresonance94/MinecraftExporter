@@ -225,7 +225,7 @@ public final class RenderImageExporter {
             RenderSystem.setProjectionMatrix(
                     new Matrix4f().setOrtho(
                             0.0F, IMAGE_SIZE,
-                            IMAGE_SIZE, 0.0F,
+                            0.0F, IMAGE_SIZE,
                             1000.0F, 3000.0F
                     ),
                     VertexSorting.ORTHOGRAPHIC_Z
@@ -245,7 +245,6 @@ public final class RenderImageExporter {
             );
 
             bufferSource.endBatch();
-            Lighting.setupFor3DItems();
             poseStack.popPose();
 
             // Restore the game's projection before reading pixels, as Wiki Zoomer does.
@@ -297,7 +296,7 @@ public final class RenderImageExporter {
 
         poseStack.pushPose();
         poseStack.translate(size / 2.0F, size / 2.0F, 100.0F);
-        poseStack.scale(scale, -scale, scale);
+        poseStack.scale(scale, scale, scale);
 
         BakedModel model = minecraft.getItemRenderer().getModel(stack, minecraft.level, null, 0);
         if (model.usesBlockLight()) {
