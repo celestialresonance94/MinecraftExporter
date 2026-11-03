@@ -1,5 +1,5 @@
 modLoader="javafml"
-loaderVersion="[47,)"
+loaderVersion="[36,)"
 license="GPL-3.0"
 
 [[mods]]
@@ -11,13 +11,13 @@ description='''mod to export minecraft stuff. item names, block names, item imag
 [[dependencies.minecraftexporter]]
 modId="forge"
 mandatory=true
-versionRange="[47,)"
+versionRange="[36,)"
 ordering="NONE"
 side="BOTH"
 
 [[dependencies.minecraftexporter]]
 modId="minecraft"
 mandatory=true
-versionRange="[1.20.1,1.20.2)"
+versionRange="[1.16.5,1.17)"
 ordering="NONE"
 side="BOTH"

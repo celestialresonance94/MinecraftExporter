@@ -1,22 +1,27 @@
-plugins {
-    id 'java'
-    id 'net.minecraftforge.gradle' version '[6.0,6.2)'
+buildscript {
+    repositories {
+        maven { url = 'https://maven.minecraftforge.net' }
+        mavenCentral()
+    }
+    dependencies {
+        classpath group: 'net.minecraftforge.gradle', name: 'ForgeGradle', version: '5.1.+', changing: true
+    }
 }
+
+apply plugin: 'java'
+apply plugin: 'net.minecraftforge.gradle'
 
 group = project.mod_group_id
 version = project.mod_version
 
-base {
-    archivesName = project.mod_id
-}
+archivesBaseName = project.mod_id
 
 java {
-    toolchain.languageVersion = JavaLanguageVersion.of(17)
+    toolchain.languageVersion = JavaLanguageVersion.of(8) // Mojang ships Java 8 to end users on 1.16.5.
 }
 
 minecraft {
-    mappings channel: 'official', version: '1.20.1'
-    copyIdeResources = true
+    mappings channel: 'official', version: '1.16.5'
 
     runs {
         configureEach {
@@ -28,8 +33,10 @@ minecraft {
                 }
             }
         }
-        client {}
-        server {}
+        client {
+        }
+        server {
+        }
     }
 }
 
@@ -39,6 +46,20 @@ repositories {
 
 dependencies {
     minecraft "net.minecraftforge:forge:${minecraft_version}-${forge_version}"
+}
+
+jar {
+    manifest {
+        attributes([
+                "Specification-Title"     : project.mod_id,
+                "Specification-Vendor"    : "celestialresonance94",
+                "Specification-Version"   : "1",
+                "Implementation-Title"    : project.mod_name,
+                "Implementation-Version"  : project.jar.archiveVersion,
+                "Implementation-Vendor"   : "celestialresonance94",
+                "Implementation-Timestamp": new Date().format("yyyy-MM-dd'T'HH:mm:ssZ")
+        ])
+    }
 }
 
 tasks.withType(JavaCompile).configureEach {
