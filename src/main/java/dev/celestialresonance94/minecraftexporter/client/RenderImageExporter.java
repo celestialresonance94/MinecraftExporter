@@ -53,12 +53,14 @@ import java.util.List;
 public final class RenderImageExporter {
     private static final int IMAGE_SIZE = 256;
 
-    // Wiki Zoomer's default camera angles (ExportTask rotX/rotY): 30 degrees of
-    // downward pitch and 45 degrees of yaw, applied before vanilla's own GUI
-    // transforms. This reproduces Wiki Zoomer's standard three-quarter wiki
-    // view: top face on top, front and right faces angled toward the viewer.
-    private static final float ROT_X_DEGREES = 30.0F;
-    private static final float ROT_Y_DEGREES = 45.0F;
+    // Wiki Zoomer's default item camera angles (ZoomerSessionConfig.ItemConfig
+    // defaults): rotX = 0, rotY = 0. The 30/45 pair belongs to its ENTITY
+    // defaults only. With zero rotation, vanilla's GUI display context supplies
+    // the standard inventory orientation for every model - flat sprites stay
+    // upright and block items get vanilla's built-in cube tilt - while the
+    // usesBlockLight-based Lighting selection below fixes the shading.
+    private static final float ROT_X_DEGREES = 0.0F;
+    private static final float ROT_Y_DEGREES = 0.0F;
 
     private static final Deque<RenderEntry> QUEUE = new ArrayDeque<>();
 
