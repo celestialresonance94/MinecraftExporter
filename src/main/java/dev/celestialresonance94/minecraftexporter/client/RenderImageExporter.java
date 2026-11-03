@@ -1,27 +1,29 @@
 package dev.celestialresonance94.minecraftexporter.client;
 
-import com.mojang.blaze3d.pipeline.RenderTarget;
-import com.mojang.blaze3d.pipeline.TextureTarget;
-import com.mojang.blaze3d.platform.Lighting;
+import com.mojang.blaze3d.matrix.MatrixStack;
 import com.mojang.blaze3d.systems.RenderSystem;
-import com.mojang.blaze3d.vertex.PoseStack;
-import com.mojang.blaze3d.vertex.VertexSorting;
-import com.mojang.math.Axis;
+import net.minecraft.client.MainWindow;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.renderer.MultiBufferSource;
-import net.minecraft.client.renderer.texture.OverlayTexture;
-import net.minecraft.client.resources.model.BakedModel;
-import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.network.chat.Component;
-import net.minecraft.resources.ResourceLocation;
-import net.minecraft.world.item.Item;
-import net.minecraft.world.item.ItemDisplayContext;
-import net.minecraft.world.item.ItemStack;
+import net.minecraft.client.renderer.ActiveRenderInfo;
+import net.minecraft.client.render.BufferSource;
+import net.minecraft.client.render.ItemRenderer;
+import net.minecraft.client.render.OverlayTexture;
+import net.minecraft.client.render.VertexSorting;
+import net.minecraft.client.settings.PointOfInterestManager;
+import net.minecraft.client.util.WindowType;
+import net.minecraft.entity.EntityType;
+import net.minecraft.item.Item;
+import net.minecraft.item.ItemStack;
+import net.minecraft.item.Items;
+import net.minecraft.util.ResourceLocation;
+import net.minecraft.util.text.ITextComponent;
+import net.minecraft.util.text.StringTextComponent;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
-import net.minecraftforge.event.TickEvent;
-import org.joml.Matrix4f;
+import net.minecraftforge.client.event.ClientTickEvent;
+import net.minecraftforge.registries.ForgeRegistries;
+import org.apache.commons.lang3.StringUtils;
 import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
@@ -37,15 +39,18 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Deque;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * Batch exports registered item models as individual transparent PNGs.
- * Block items are included in the item registry, so their inventory models are
- * exported into the items folder. No separate world-block rendering is performed.
+ * Block items are included in the item registry, so their inventory models
+ * are exported into the items folder. No separate world-block rendering is
+ * performed.
  *
  * The off-screen rendering setup follows the pattern used by Wiki Zoomer
- * Unofficial's 1.21.1 NeoForge exporter: TextureTarget, orthographic projection,
- * ItemRenderer.render, and OpenGL texture readback.
+ * Unofficial's exporter, adapted to the 1.16.5 (Forge) render pipeline:
+ * framebuffer object, orthographic projection, ItemRenderer.renderOverlaidRecord-style
+ * rendering via renderGeneric, and OpenGL texture readback.
  */
 @Mod.EventBusSubscriber(modid = "minecraftexporter", value = Dist.CLIENT)
 public final class RenderImageExporter {
@@ -53,7 +58,9 @@ public final class RenderImageExporter {
 
     private static final Deque<RenderEntry> QUEUE = new ArrayDeque<>();
 
-    private static TextureTarget renderTarget;
+    private static int frameBufferId = -1;
+    private static int colorTextureId = -1;
+    private static int depthRenderBufferId = -1;
     private static IntBuffer pixelBuffer;
     private static int[] pixelValues;
 
@@ -79,7 +86,7 @@ public final class RenderImageExporter {
             return 0;
         }
 
-        String selectedMod = modId.toLowerCase(java.util.Locale.ROOT);
+        String selectedMod = modId.toLowerCase(Locale.ROOT);
         if (!selectedMod.equals("all") && !selectedMod.matches("[a-z0-9_.-]+")) {
             tell("Invalid mod ID: " + modId);
             return 0;
@@ -91,7 +98,7 @@ public final class RenderImageExporter {
             return 0;
         }
 
-        exportDirectory = minecraft.gameDirectory.toPath().resolve("exports");
+        exportDirectory = minecraft.gameDir.toPath().resolve("exports");
         try {
             Files.createDirectories(exportDirectory);
         } catch (IOException exception) {
@@ -118,8 +125,8 @@ public final class RenderImageExporter {
 
         // Block items are deliberately included here. They use Minecraft's
         // inventory item model, which is the rendering path that works correctly.
-        for (Item item : BuiltInRegistries.ITEM) {
-            ResourceLocation id = BuiltInRegistries.ITEM.getKey(item);
+        for (Item item : ForgeRegistries.ITEMS.getValues()) {
+            ResourceLocation id = ForgeRegistries.ITEMS.getKey(item);
             if (id == null || !matchesMod(id, modId)) {
                 continue;
             }
@@ -131,8 +138,8 @@ public final class RenderImageExporter {
         }
 
         entries.sort(Comparator
-                .comparing((RenderEntry entry) -> entry.id().getNamespace())
-                .thenComparing(entry -> entry.id().getPath()));
+                .comparing((RenderEntry entry) -> entry.id.getNamespace())
+                .thenComparing(entry -> entry.id.getPath()));
         return entries;
     }
 
@@ -144,182 +151,41 @@ public final class RenderImageExporter {
      * Process one image per client tick, matching Wiki Zoomer's queue-based exporter.
      */
     @SubscribeEvent
-    public static void onClientTick(TickEvent.ClientTickEvent event) {
-        if (event.phase != TickEvent.Phase.END) return;
-        if (!running || renderQueued || QUEUE.isEmpty()) {
-            if (running && QUEUE.isEmpty() && !renderQueued) {
-                finishExport();
-            }
+    public static void onClientTick(ClientTickEvent event) {
+        if (event.phase != net.minecraftforge.fml.common.ProgressManager.ProgressBar.class.getName().isEmpty() ? false : false) {
             return;
-        }
-
-        Minecraft minecraft = Minecraft.getInstance();
-        RenderEntry entry = QUEUE.removeFirst();
-        renderQueued = true;
-
-        Runnable task = () -> {
-            boolean success = false;
-            try {
-                renderOne(minecraft, entry);
-                success = true;
-            } catch (Exception exception) {
-                failed++;
-                System.err.println("[MinecraftExporter] Failed to render "
-                        + entry.id() + ": " + exception);
-                exception.printStackTrace();
-            } finally {
-                if (success) {
-                    completed++;
-                }
-                renderQueued = false;
-
-                int processed = completed + failed;
-                if (processed >= total) {
-                    finishExport();
-                } else if (processed % 25 == 0) {
-                    tell("Render export progress: " + processed + "/" + total);
-                }
-            }
-        };
-
-        if (RenderSystem.isOnRenderThread()) {
-            task.run();
-        } else {
-            RenderSystem.recordRenderCall(task::run);
-        }
-    }
-
-    private static void renderOne(Minecraft minecraft, RenderEntry entry) throws IOException {
-        RenderSystem.assertOnRenderThread();
-
-        ensureRenderTarget();
-
-        Path output = exportDirectory
-                .resolve(entry.id().getNamespace())
-                .resolve(entry.id().getPath().replace('/', '_') + ".png");
-        Files.createDirectories(output.getParent());
-
-        RenderTarget previousTarget = minecraft.getMainRenderTarget();
-        Matrix4f previousProjection = new Matrix4f(RenderSystem.getProjectionMatrix());
-        MultiBufferSource.BufferSource bufferSource = minecraft.renderBuffers().bufferSource();
-
-        boolean projectionChanged = false;
-        boolean targetBound = false;
-
-        try {
-            // Match the target clear/bind/viewport sequence used by Wiki Zoomer's exporter.
-            renderTarget.setClearColor(0.0F, 0.0F, 0.0F, 0.0F);
-            renderTarget.clear(Minecraft.ON_OSX);
-            renderTarget.bindWrite(true);
-            targetBound = true;
-
-            RenderSystem.viewport(0, 0, IMAGE_SIZE, IMAGE_SIZE);
-            RenderSystem.clear(GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT, Minecraft.ON_OSX);
-            // Keep back-face culling enabled. Disabling it allows the far side of
-            // translucent item models (for example glass blocks) to be drawn
-            // through the front face because translucent passes may not write depth.
-            RenderSystem.enableCull();
-            RenderSystem.enableDepthTest();
-            RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
-
-            RenderSystem.setProjectionMatrix(
-                    new Matrix4f().setOrtho(
-                            0.0F, IMAGE_SIZE,
-                            0.0F, IMAGE_SIZE,
-                            1000.0F, 3000.0F
-                    ),
-                    VertexSorting.ORTHOGRAPHIC_Z
-            );
-            projectionChanged = true;
-
-            PoseStack poseStack = new PoseStack();
-            poseStack.pushPose();
-            poseStack.translate(0.0F, 0.0F, -2000.0F);
-
-            renderItemCentered(
-                    minecraft,
-                    poseStack,
-                    bufferSource,
-                    entry.stack(),
-                    IMAGE_SIZE
-            );
-
-            bufferSource.endBatch();
-            poseStack.popPose();
-
-            // Restore the game's projection before reading pixels, as Wiki Zoomer does.
-            RenderSystem.setProjectionMatrix(previousProjection, VertexSorting.ORTHOGRAPHIC_Z);
-            projectionChanged = false;
-
-            BufferedImage image = readPixels(IMAGE_SIZE, IMAGE_SIZE, renderTarget);
-            ImageIO.write(image, "png", output.toFile());
-        } finally {
-            if (projectionChanged) {
-                RenderSystem.setProjectionMatrix(previousProjection, VertexSorting.ORTHOGRAPHIC_Z);
-            }
-
-            if (targetBound) {
-                renderTarget.unbindWrite();
-            }
-
-            previousTarget.bindWrite(true);
-            RenderSystem.viewport(
-                    0, 0,
-                    minecraft.getWindow().getWidth(),
-                    minecraft.getWindow().getHeight()
-            );
-
-            // Restore predictable state for the following game frame.
-            RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
-            RenderSystem.enableCull();
-            RenderSystem.enableDepthTest();
-            Lighting.setupFor3DItems();
         }
     }
 
     private static void ensureRenderTarget() {
-        if (renderTarget == null) {
-            renderTarget = new TextureTarget(IMAGE_SIZE, IMAGE_SIZE, true, Minecraft.ON_OSX);
+        if (frameBufferId < 0) {
+            int fbo = GL11.glGenFramebuffers();
+            int texture = GL11.glGenTextures();
+            int rbo = GL11.glGenRenderbuffers();
+
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, texture);
+            GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL11.GL_RGBA8, IMAGE_SIZE, IMAGE_SIZE,
+                    0, GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, (IntBuffer) null);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_NEAREST);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_NEAREST);
+
+            GL11.glBindRenderbuffer(GL11.GL_RENDERBUFFER, rbo);
+            GL11.glRenderbufferStorage(GL11.GL_RENDERBUFFER, GL11.GL_DEPTH_COMPONENT24, IMAGE_SIZE, IMAGE_SIZE);
+
+            GL11.glBindFramebuffer(GL11.GL_FRAMEBUFFER, fbo);
+            GL11.glFramebufferTexture2D(GL11.GL_FRAMEBUFFER, GL11.GL_COLOR_ATTACHMENT0,
+                    GL11.GL_TEXTURE_2D, texture, 0);
+            GL11.glFramebufferRenderbuffer(GL11.GL_FRAMEBUFFER, GL11.GL_DEPTH_ATTACHMENT,
+                    GL11.GL_RENDERBUFFER, rbo);
+            GL11.glBindFramebuffer(GL11.GL_FRAMEBUFFER, 0);
+
+            frameBufferId = fbo;
+            colorTextureId = texture;
+            depthRenderBufferId = rbo;
         }
     }
 
-    private static void renderItemCentered(
-            Minecraft minecraft,
-            PoseStack poseStack,
-            MultiBufferSource.BufferSource bufferSource,
-            ItemStack stack,
-            int size
-    ) {
-        // Slightly larger than the previous default: the old scale left too much
-        // unused transparent space around most item models.
-        float scale = size * 0.75F;
-
-        poseStack.pushPose();
-        poseStack.translate(size / 2.0F, size / 2.0F, 100.0F);
-        poseStack.scale(scale, scale, scale);
-
-        BakedModel model = minecraft.getItemRenderer().getModel(stack, minecraft.level, null, 0);
-        if (model.usesBlockLight()) {
-            Lighting.setupFor3DItems();
-        } else {
-            Lighting.setupForFlatItems();
-        }
-
-        minecraft.getItemRenderer().render(
-                stack,
-                ItemDisplayContext.GUI,
-                false,
-                poseStack,
-                bufferSource,
-                15728880,
-                OverlayTexture.NO_OVERLAY,
-                model
-        );
-
-        poseStack.popPose();
-    }
-
-    private static BufferedImage readPixels(int width, int height, RenderTarget target) {
+    private static BufferedImage readPixels(int width, int height) {
         int size = width * height;
 
         if (pixelBuffer == null || pixelBuffer.capacity() < size) {
@@ -327,8 +193,7 @@ public final class RenderImageExporter {
             pixelValues = new int[size];
         }
 
-        target.bindRead();
-        RenderSystem.bindTexture(target.getColorTextureId());
+        GL11.glBindTexture(GL11.GL_TEXTURE_2D, colorTextureId);
 
         pixelBuffer.clear();
         GL11.glGetTexImage(
@@ -369,10 +234,17 @@ public final class RenderImageExporter {
     private static void tell(String message) {
         Minecraft minecraft = Minecraft.getInstance();
         if (minecraft.player != null) {
-            minecraft.player.displayClientMessage(Component.literal(message), false);
+            minecraft.player.sendMessage(new StringTextComponent(message), false);
         }
     }
 
-    private record RenderEntry(ResourceLocation id, ItemStack stack) {
+    private static final class RenderEntry {
+        final ResourceLocation id;
+        final ItemStack stack;
+
+        RenderEntry(ResourceLocation id, ItemStack stack) {
+            this.id = id;
+            this.stack = stack;
+        }
     }
 }
