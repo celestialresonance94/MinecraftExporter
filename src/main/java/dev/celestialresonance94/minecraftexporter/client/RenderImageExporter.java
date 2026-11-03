@@ -44,12 +44,21 @@ import java.util.List;
  * exported into the items folder. No separate world-block rendering is performed.
  *
  * The off-screen rendering setup follows the pattern used by Wiki Zoomer
- * Unofficial's 1.21.1 NeoForge exporter: TextureTarget, orthographic projection,
- * ItemRenderer.render, and OpenGL texture readback.
+ * Unofficial's 1.20.1 Forge exporter (ExportManager): TextureTarget,
+ * orthographic projection with Z compression, rotX/rotY camera pose,
+ * usesBlockLight-based Lighting.setupFor3DItems/setupForFlatItems selection,
+ * ItemRenderer.render in the GUI context, and OpenGL texture readback.
  */
 @Mod.EventBusSubscriber(modid = "minecraftexporter", value = Dist.CLIENT)
 public final class RenderImageExporter {
     private static final int IMAGE_SIZE = 256;
+
+    // Wiki Zoomer's default camera angles (ExportTask rotX/rotY): 30 degrees of
+    // downward pitch and 45 degrees of yaw, applied before vanilla's own GUI
+    // transforms. This reproduces Wiki Zoomer's standard three-quarter wiki
+    // view: top face on top, front and right faces angled toward the viewer.
+    private static final float ROT_X_DEGREES = 30.0F;
+    private static final float ROT_Y_DEGREES = 45.0F;
 
     private static final Deque<RenderEntry> QUEUE = new ArrayDeque<>();
 
@@ -221,10 +230,10 @@ public final class RenderImageExporter {
 
             RenderSystem.viewport(0, 0, IMAGE_SIZE, IMAGE_SIZE);
             RenderSystem.clear(GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT, Minecraft.ON_OSX);
-            // Keep back-face culling enabled. Disabling it allows the far side of
-            // translucent item models (for example glass blocks) to be drawn
-            // through the front face because translucent passes may not write depth.
-            RenderSystem.enableCull();
+            // Wiki Zoomer disables culling for export renders. With culling on,
+            // any model whose winding ends up reversed after our pose rotations
+            // disappears entirely or shows only one side, so follow its lead.
+            RenderSystem.disableCull();
             RenderSystem.enableDepthTest();
             RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
 
@@ -242,6 +251,11 @@ public final class RenderImageExporter {
             PoseStack poseStack = new PoseStack();
             poseStack.pushPose();
             poseStack.translate(0.0F, 0.0F, -2000.0F);
+            // Wiki Zoomer applies this Z compression between the screen-space
+            // translate and the item render. Without it, depth values written
+            // by rotated 3D block models fall outside the orthographic near/far
+            // range and the depth test rejects whole faces mid-rotation.
+            poseStack.scale(1.0F, 1.0F, 0.01F);
 
             renderItemCentered(
                     minecraft,
@@ -301,47 +315,48 @@ public final class RenderImageExporter {
             ItemStack stack,
             int size
     ) {
-        // Slightly larger than the previous default: the old scale left too much
-        // unused transparent space around most item models.
-        float scale = size * 0.5F;
+        // Wiki Zoomer uses zoomPercent * 1.92 with its default 100% zoom,
+        // which equals size * 0.96 in these screen-pixel units. This also
+        // leaves the small margin around the model that wiki images have.
+        float scale = size * 0.96F;
 
         poseStack.pushPose();
         poseStack.translate(size / 2.0F, size / 2.0F, 100.0F);
         poseStack.scale(scale, -scale, scale);
 
+        // Same rotation sequence as Wiki Zoomer's renderItemCentered with its
+        // default camera angles (rotX=30 pitch down, rotY=45 yaw). Combined
+        // with vanilla's own GUI transforms this yields the familiar
+        // three-quarter inventory view: top face on top, front and side faces
+        // angled symmetrically toward the viewer.
+        poseStack.mulPose(Axis.XP.rotationDegrees(ROT_X_DEGREES));
+        poseStack.mulPose(Axis.YP.rotationDegrees(ROT_Y_DEGREES));
+
         BakedModel model = minecraft.getItemRenderer().getModel(stack, minecraft.level, null, 0);
-        if (model.isGui3d()) {
-            // Vanilla renders GUI block items through a tilted view matrix
-            // (30 deg X pitch, +45 deg Y yaw) plus an extra +90 deg yaw for
-            // the cube. The exporter's flat screen-aligned orthographic
-            // projection exposed those rotations directly, which is why the
-            // cubes looked slanted diagonally and turned to one side instead
-            // of squarely facing the viewer. We now skip vanilla's transform
-            // (NONE display context below) and pose the cube ourselves with
-            // the same net orientation: pitch down 30 deg, yaw 45 deg + the
-            // block-item quarter turn. Result: top face on top, two side faces
-            // angled symmetric left/right - the standard inventory preview.
-            poseStack.mulPose(Axis.XP.rotationDegrees(30.0F));
-            poseStack.mulPose(Axis.YP.rotationDegrees(135.0F));
-            // Forge 1.20.1's RenderSystem does not expose the GL light-slot
-            // methods (enableLight/lightColor/lightDirection/etc.), so use
-            // vanilla's standard two-light setup, which exists in 1.20.1 and
-            // matches how block items are lit in a normal inventory preview.
-            Lighting.setupFor3DItems();
-        } else {
+
+        // Lighting selection copied from Wiki Zoomer: models that use block
+        // light (all gui-3d block items) get vanilla's two-light directional
+        // setup via Lighting.setupFor3DItems(), flat sprites get uniform
+        // brightness via setupForFlatItems(). In 1.20.1 isGui3d() implies
+        // usesBlockLight(), so this check covers both branches exactly as
+        // Wiki Zoomer does.
+        if (!model.usesBlockLight()) {
             Lighting.setupForFlatItems();
+        } else {
+            Lighting.setupFor3DItems();
         }
 
         // Forge 1.20.1: ItemRenderer.render(ItemStack, ItemDisplayContext, boolean leftHanded,
         // PoseStack, MultiBufferSource, int light, int overlay, BakedModel).
-        // NONE keeps renderByItem from adding its own fixed GUI transforms on
-        // top of our explicit pose; flat sprites ignore that branch, so they
-        // keep GUI. Sprite/override resolution is unaffected because
+        // GUI, exactly like Wiki Zoomer's call: vanilla then applies its own
+        // standard inventory transforms (the extra yaw for block-item cubes,
+        // sprite centering for flat items) on top of our explicit pose above.
+        // Sprite/override resolution is unaffected because
         // ForgeHooksClient.handleRenderState already maps GUI to NONE when we
         // fetched the baked model above.
         minecraft.getItemRenderer().render(
                 stack,
-                model.isGui3d() ? ItemDisplayContext.NONE : ItemDisplayContext.GUI,
+                ItemDisplayContext.GUI,
                 false,
                 poseStack,
                 bufferSource,
