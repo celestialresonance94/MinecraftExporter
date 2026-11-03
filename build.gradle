@@ -1,36 +1,44 @@
 plugins {
-    id 'java-library'
-    id 'net.neoforged.moddev' version '2.0.148'
+    id 'java'
+    id 'net.minecraftforge.gradle' version '[6.0,6.2)'
 }
 
-version = project.mod_version
 group = project.mod_group_id
+version = project.mod_version
 
 base {
     archivesName = project.mod_id
 }
 
 java {
-    toolchain.languageVersion = JavaLanguageVersion.of(21)
+    toolchain.languageVersion = JavaLanguageVersion.of(17)
 }
 
-neoForge {
-    version = project.neo_version
+minecraft {
+    mappings channel: 'official', version: '1.20.1'
+    copyIdeResources = true
 
     runs {
-        client {
-            client()
+        configureEach {
+            workingDirectory project.file('run')
+            property 'forge.logging.console.level', 'debug'
+            mods {
+                "${mod_id}" {
+                    source sourceSets.main
+                }
+            }
         }
-        server {
-            server()
-        }
+        client {}
+        server {}
     }
+}
 
-    mods {
-        "${mod_id}" {
-            sourceSet sourceSets.main
-        }
-    }
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    minecraft "net.minecraftforge:forge:${minecraft_version}-${forge_version}"
 }
 
 tasks.withType(JavaCompile).configureEach {

@@ -1,6 +1,6 @@
 package dev.celestialresonance94.minecraftexporter;
 
-import net.neoforged.fml.common.Mod;
+import net.minecraftforge.fml.common.Mod;
 
 @Mod(RegistryNameExporter.MOD_ID)
 public final class RegistryNameExporter {

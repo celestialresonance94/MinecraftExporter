@@ -17,10 +17,10 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemDisplayContext;
 import net.minecraft.world.item.ItemStack;
-import net.neoforged.api.distmarker.Dist;
-import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.fml.common.EventBusSubscriber;
-import net.neoforged.neoforge.client.event.ClientTickEvent;
+import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.eventbus.api.SubscribeEvent;
+import net.minecraftforge.fml.common.Mod;
+import net.minecraftforge.event.TickEvent;
 import org.joml.Matrix4f;
 import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL11;
@@ -47,7 +47,7 @@ import java.util.List;
  * Unofficial's 1.21.1 NeoForge exporter: TextureTarget, orthographic projection,
  * ItemRenderer.render, and OpenGL texture readback.
  */
-@EventBusSubscriber(modid = "minecraftexporter", value = Dist.CLIENT)
+@Mod.EventBusSubscriber(modid = "minecraftexporter", value = Dist.CLIENT)
 public final class RenderImageExporter {
     private static final int IMAGE_SIZE = 256;
 
@@ -144,7 +144,8 @@ public final class RenderImageExporter {
      * Process one image per client tick, matching Wiki Zoomer's queue-based exporter.
      */
     @SubscribeEvent
-    public static void onClientTick(ClientTickEvent.Post event) {
+    public static void onClientTick(TickEvent.ClientTickEvent event) {
+        if (event.phase != TickEvent.Phase.END) return;
         if (!running || renderQueued || QUEUE.isEmpty()) {
             if (running && QUEUE.isEmpty() && !renderQueued) {
                 finishExport();
