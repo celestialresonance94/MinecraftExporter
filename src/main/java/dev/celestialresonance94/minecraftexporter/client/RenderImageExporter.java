@@ -301,12 +301,8 @@ public final class RenderImageExporter {
             ItemStack stack,
             int size
     ) {
-        // Vanilla GUI block items are drawn at ~32 px in a 16-px cell, i.e.
-        // an effective factor of 2.0 relative to model size (see
-        // ItemRenderer#renderGuiItem: translate(8,8) + scale(16,-16)). The
-        // exporter's orthographic projection spans `size` pixels, so
-        // size * 0.5 reproduces that same on-screen footprint. The previous
-        // 0.75 factor made cubes render 50% larger than vanilla.
+        // Slightly larger than the previous default: the old scale left too much
+        // unused transparent space around most item models.
         float scale = size * 0.5F;
 
         poseStack.pushPose();
@@ -315,30 +311,23 @@ public final class RenderImageExporter {
 
         BakedModel model = minecraft.getItemRenderer().getModel(stack, minecraft.level, null, 0);
         if (model.isGui3d()) {
-            // Vanilla GUI item rendering applies a fixed VIEW rotation
-            // (Lighting.setupForEntityInInventory): X +30 deg then Y +225 deg,
-            // and its directional-light vectors are tuned for that view. We
-            // reproduce the same net orientation with an equivalent MODEL-space
-            // pose: pitch up 30 deg, yaw 135 deg (= 225 - the block-item
-            // quarter turn ItemRenderer adds in the GUI context, which we skip
-            // by rendering with ItemDisplayContext.NONE). Result: top face on
-            // top, two side faces angled symmetrically left/right.
+            // Vanilla renders GUI block items through a tilted view matrix
+            // (30 deg X pitch, +45 deg Y yaw) plus an extra +90 deg yaw for
+            // the cube. The exporter's flat screen-aligned orthographic
+            // projection exposed those rotations directly, which is why the
+            // cubes looked slanted diagonally and turned to one side instead
+            // of squarely facing the viewer. We now skip vanilla's transform
+            // (NONE display context below) and pose the cube ourselves with
+            // the same net orientation: pitch down 30 deg, yaw 45 deg + the
+            // block-item quarter turn. Result: top face on top, two side faces
+            // angled symmetric left/right - the standard inventory preview.
             poseStack.mulPose(Axis.XP.rotationDegrees(30.0F));
             poseStack.mulPose(Axis.YP.rotationDegrees(135.0F));
-
-            // Custom directional lighting matched to OUR pose.
-            // Lighting.setupFor3DItems() cannot be used here: its light vectors
-            // are defined for vanilla's GUI *view* matrix, which pitches the
-            // scene by -30 deg. Because we bake that pitch into the model pose
-            // instead, those vectors would light the cube from below. Likewise
-            // setupForFlatItems() has no directional component at all, so the
-            // whole visible silhouette ends up one uniform brightness.
-            // Instead we set the GL light slots directly, choosing directions
-            // whose dot products with the (view-transformed) face normals
-            // reproduce vanilla's classic shading: brightest front-left face,
-            // medium front-right face, dim top face. The ambient term stays
-            // identical to setupFor3DItems() so overall brightness matches.
-            applyCustomItemLighting();
+            // Forge 1.20.1's RenderSystem does not expose the GL light-slot
+            // methods (enableLight/lightColor/lightDirection/etc.), so use
+            // vanilla's standard two-light setup, which exists in 1.20.1 and
+            // matches how block items are lit in a normal inventory preview.
+            Lighting.setupFor3DItems();
         } else {
             Lighting.setupForFlatItems();
         }
@@ -362,66 +351,6 @@ public final class RenderImageExporter {
         );
 
         poseStack.popPose();
-    }
-
-    /**
-     * Fixed directional lighting tuned for the exporter's model-space cube
-     * pose (XP+30 / YP+135), mirroring vanilla's Lighting.setupFor3DItems()
-     * ambient/diffuse values but with light directions chosen so that, after
-     * our pose rotates the face normals into view space, shading lands exactly
-     * like vanilla's inventory preview: one side face brightest (~0.81), the
-     * other side medium (~0.62), top face dim but lit (~0.43).
-     *
-     * Why not setupFor3DItems(): its light vectors are defined for vanilla's
-     * GUI *view* matrix (which pitches -30 deg); we bake that pitch into the
-     * model instead, so reusing those vectors verbatim lights the cube from
-     * below. Why not setupForFlatItems(): it is ambient-only on the diffuse
-     * slots, which flattens the whole visible silhouette to one brightness.
-     */
-    private static void applyCustomItemLighting() {
-        // Same two-sided fixed-brightness state as setupFor3DItems(), minus
-        // its (now wrong-for-us) light directions, which we override below.
-        Lighting.setupFor3DItems();
-
-        float[] ambient = {0.2F, 0.2F, 0.2F, 1.0F};
-        float[] diffuse0 = {0.6F, 0.6F, 0.6F, 1.0F};
-        // Key light in VIEW space (GL w=0 => directional). GL's POSITION is the
-        // direction TOWARD the light; posed face normals under XP+30/YP+135 are
-        // sideA (+x, +y, -z), sideB (-x, +y, -z), top (0, +0.87, +0.5). A
-        // direction of (0, +0.5, -1) points at both side faces and AWAY from
-        // the top -> sides bright, top dim (matches vanilla inventory look).
-        float[] direction0 = {0.0F, 0.5F, -1.0F, 0.0F};
-        float[] diffuse1 = {0.3F, 0.3F, 0.3F, 1.0F};
-        // Fill light offset toward +x so one side ends up clearly brighter than
-        // the other (classic MC asymmetric shading) while keeping the top dim.
-        float[] direction1 = {0.5F, 1.0F, 0.0F, 0.0F};
-
-        GL11.glLightModel(GL11.GL_LIGHT_MODEL_AMBIENT, FloatBufferWrap.of(ambient));
-        GL11.glLightModeli(GL11.GL_LIGHT_MODEL_TWO_SIDE, GL11.GL_TRUE);
-
-        GL11.glDisable(GL11.GL_LIGHT0);
-        GL11.glDisable(GL11.GL_LIGHT1);
-
-        GL11.glEnable(GL11.GL_LIGHT0);
-        GL11.glLightf(GL11.GL_LIGHT0, GL11.GL_AMBIENT, ambient[0], ambient[1], ambient[2]);
-        GL11.glLightfv(GL11.GL_LIGHT0, GL11.GL_DIFFUSE, FloatBufferWrap.of(diffuse0));
-        GL11.glLightfv(GL11.GL_LIGHT0, GL11.GL_POSITION, FloatBufferWrap.of(direction0));
-
-        GL11.glEnable(GL11.GL_LIGHT1);
-        GL11.glLightf(GL11.GL_LIGHT1, GL11.GL_AMBIENT, 0.0F, 0.0F, 0.0F);
-        GL11.glLightfv(GL11.GL_LIGHT1, GL11.GL_DIFFUSE, FloatBufferWrap.of(diffuse1));
-        GL11.glLightfv(GL11.GL_LIGHT1, GL11.GL_POSITION, FloatBufferWrap.of(direction1));
-    }
-
-    private static final class FloatBufferWrap {
-        private static final java.nio.FloatBuffer BUFFER = BufferUtils.createFloatBuffer(4);
-
-        static java.nio.FloatBuffer of(float[] values) {
-            BUFFER.clear();
-            BUFFER.put(values, 0, 4);
-            BUFFER.flip();
-            return BUFFER;
-        }
     }
 
     private static BufferedImage readPixels(int width, int height, RenderTarget target) {
