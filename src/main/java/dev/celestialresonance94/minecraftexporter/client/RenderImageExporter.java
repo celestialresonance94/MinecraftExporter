@@ -53,14 +53,51 @@ import java.util.List;
 public final class RenderImageExporter {
     private static final int IMAGE_SIZE = 256;
 
-    // Wiki Zoomer's default item camera angles (ZoomerSessionConfig.ItemConfig
-    // defaults): rotX = 0, rotY = 0. The 30/45 pair belongs to its ENTITY
-    // defaults only. With zero rotation, vanilla's GUI display context supplies
-    // the standard inventory orientation for every model - flat sprites stay
-    // upright and block items get vanilla's built-in cube tilt - while the
-    // usesBlockLight-based Lighting selection below fixes the shading.
-    private static final float ROT_X_DEGREES = 0.0F;
-    private static final float ROT_Y_DEGREES = 0.0F;
+    // Two independent angle pairs, mirroring Wiki Zoomer's split between the
+    // camera pose (rotX/rotY) and the light direction (lightX/lightY):
+    //
+    //  - ITEM ROTATION (ROT_X/ROT_Y): applied to the model itself. Defaults to
+    //    Wiki Zoomer's item values (0/0), letting vanilla's GUI display context
+    //    supply the standard inventory orientation - flat sprites stay upright,
+    //    block items get vanilla's built-in cube tilt.
+    //
+    //  - LIGHT DIRECTION (lightX/lightY): rotates ONLY the directional light
+    //    vectors before rendering, so shading changes without touching geometry.
+    //    At lightX = lightY = 0 the light matrix is the identity and shading is
+    //    exactly vanilla's Lighting.setupFor3DItems(); the user angles rotate
+    //    both hardcoded light vectors via the shader's LIGHTING_MATRIX uniform.
+    private static float rotXDegrees = 0.0F;
+    private static float rotYDegrees = 0.0F;
+    private static float lightXDegrees = 0.0F;
+    private static float lightYDegrees = 0.0F;
+
+    /** Item model rotation (degrees). Independent of the lighting angles. */
+    public static void setItemRotation(float rotX, float rotY) {
+        rotXDegrees = rotX;
+        rotYDegrees = rotY;
+    }
+
+    /** Directional light rotation (degrees). Independent of the item rotation. */
+    public static void setLightRotation(float lightX, float lightY) {
+        lightXDegrees = lightX;
+        lightYDegrees = lightY;
+    }
+
+    public static float getItemRotationX() {
+        return rotXDegrees;
+    }
+
+    public static float getItemRotationY() {
+        return rotYDegrees;
+    }
+
+    public static float getLightRotationX() {
+        return lightXDegrees;
+    }
+
+    public static float getLightRotationY() {
+        return lightYDegrees;
+    }
 
     private static final Deque<RenderEntry> QUEUE = new ArrayDeque<>();
 
@@ -83,6 +120,22 @@ public final class RenderImageExporter {
      * Starts an export. "all" exports every namespace; otherwise only the given mod ID.
      */
     public static int startExport(String modId) {
+        return startExport(modId, Float.NaN, Float.NaN, Float.NaN, Float.NaN);
+    }
+
+    /**
+     * Starts an export with one-off angle overrides. Any argument passed as NaN
+     * keeps the current/default value. rotX/rotY rotate the item model itself;
+     * lightX/lightY rotate ONLY the directional light, leaving geometry fixed -
+     * the same camera-pose vs light-direction split Wiki Zoomer exposes in its
+     * session config.
+     */
+    public static int startExport(String modId, float rotX, float rotY, float lightX, float lightY) {
+        if (!Float.isNaN(rotX)) setItemRotation(rotX, Float.isNaN(rotY) ? rotYDegrees : rotY);
+        if (!Float.isNaN(rotY) && Float.isNaN(rotX)) setItemRotation(rotXDegrees, rotY);
+        if (!Float.isNaN(lightX)) setLightRotation(lightX, Float.isNaN(lightY) ? lightYDegrees : lightY);
+        if (!Float.isNaN(lightY) && Float.isNaN(lightX)) setLightRotation(lightXDegrees, lightY);
+
         Minecraft minecraft = Minecraft.getInstance();
 
         if (running) {
@@ -310,6 +363,33 @@ public final class RenderImageExporter {
         }
     }
 
+    /**
+     * Installs the directional lighting used for 3D (usesBlockLight) item
+     * renders, with the light direction rotatable independently of the model.
+     *
+     * Vanilla's Lighting.setupFor3DItems() hardcodes two directional lights:
+     *   GL_LIGHT0: (-0.2, 0.0, 0.1)  - the key light
+     *   GL_LIGHT1: (-0.4, 0.1, -0.3) - the softer back fill
+     * In 1.20.1 those constants are transformed by the LIGHTING_MATRIX uniform
+     * in the shaders (rendertype_* / particle .vsh):
+     *   gl_LightSource[0] = LIGHTING_MATRIX * vec4(-0.2, 0.0, 0.1, 0.0)
+     *   gl_LightSource[1] = LIGHTING_MATRIX * vec4(-0.4, 0.1, -0.3, 0.0)
+     * and RenderSystem._setLightMatrix0/_setLightMatrix1 populate that uniform
+     * from the supplied pose matrix (via LightUtil.pack). So passing a rotation
+     * here tilts ONLY the light vectors - never the geometry - which is the
+     * same split Wiki Zoomer uses between its rotX/rotY camera pose and its
+     * lightX/lightY session settings. At lightX = lightY = 0 the matrix is the
+     * identity and the shading is exactly Lighting.setupFor3DItems().
+     */
+    private static void applyExportLighting(float lightX, float lightY) {
+        Matrix4f lightRotation = new Matrix4f();
+        lightRotation.mul(Axis.XP.rotationDegrees(lightX));
+        lightRotation.mul(Axis.YP.rotationDegrees(lightY));
+
+        RenderSystem._setLightMatrix0(lightRotation);
+        RenderSystem._setLightMatrix1(lightRotation);
+    }
+
     private static void renderItemCentered(
             Minecraft minecraft,
             PoseStack poseStack,
@@ -326,26 +406,22 @@ public final class RenderImageExporter {
         poseStack.translate(size / 2.0F, size / 2.0F, 100.0F);
         poseStack.scale(scale, -scale, scale);
 
-        // Same rotation sequence as Wiki Zoomer's renderItemCentered with its
-        // default camera angles (rotX=30 pitch down, rotY=45 yaw). Combined
-        // with vanilla's own GUI transforms this yields the familiar
-        // three-quarter inventory view: top face on top, front and side faces
-        // angled symmetrically toward the viewer.
-        poseStack.mulPose(Axis.XP.rotationDegrees(ROT_X_DEGREES));
-        poseStack.mulPose(Axis.YP.rotationDegrees(ROT_Y_DEGREES));
+        // Item rotation only - controlled independently from the light
+        // direction via setItemRotation(). At the default 0/0 this is an
+        // identity transform and vanilla's GUI context alone orients the model.
+        poseStack.mulPose(Axis.XP.rotationDegrees(rotXDegrees));
+        poseStack.mulPose(Axis.YP.rotationDegrees(rotYDegrees));
 
         BakedModel model = minecraft.getItemRenderer().getModel(stack, minecraft.level, null, 0);
 
         // Lighting selection copied from Wiki Zoomer: models that use block
-        // light (all gui-3d block items) get vanilla's two-light directional
-        // setup via Lighting.setupFor3DItems(), flat sprites get uniform
-        // brightness via setupForFlatItems(). In 1.20.1 isGui3d() implies
-        // usesBlockLight(), so this check covers both branches exactly as
-        // Wiki Zoomer does.
+        // light (all gui-3d block items) get directional shading, flat sprites
+        // get uniform brightness. The light DIRECTION is then rotated by the
+        // independent lightX/lightY angles (see applyExportLighting).
         if (!model.usesBlockLight()) {
             Lighting.setupForFlatItems();
         } else {
-            Lighting.setupFor3DItems();
+            applyExportLighting(lightXDegrees, lightYDegrees);
         }
 
         // Forge 1.20.1: ItemRenderer.render(ItemStack, ItemDisplayContext, boolean leftHanded,

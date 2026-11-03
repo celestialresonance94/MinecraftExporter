@@ -1,6 +1,7 @@
 package dev.celestialresonance94.minecraftexporter.client;
 
 import com.mojang.brigadier.Command;
+import com.mojang.brigadier.arguments.FloatArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
@@ -110,15 +111,64 @@ public final class ExportCommands {
         event.getDispatcher().register(root);
 
         // Separate command for exporting rendered block and item previews.
+        // Optional trailing angles: rotX rotY lightX lightY (degrees). Any
+        // argument may be "d" (default) or omitted to keep the current value;
+        // rotation and lighting can be changed completely independently.
         event.getDispatcher().register(
                 net.minecraft.commands.Commands.literal("render")
+                        .executes(context -> RenderImageExporter.startExport("all"))
                         .then(net.minecraft.commands.Commands.argument("modid", StringArgumentType.word())
                                 .suggests(MOD_SUGGESTIONS)
                                 .executes(context -> RenderImageExporter.startExport(
                                         StringArgumentType.getString(context, "modid")
-                                )))
-                        .executes(context -> RenderImageExporter.startExport("all"))
+                                ))
+                                .then(net.minecraft.commands.Commands.argument("rotX", FloatArgumentType.floatArg(-360.0F, 360.0F))
+                                        .executes(context -> startWithAngles(context, false))
+                                        .then(net.minecraft.commands.Commands.argument("rotY", FloatArgumentType.floatArg(-360.0F, 360.0F))
+                                                .executes(context -> startWithAngles(context, false))
+                                                .then(net.minecraft.commands.Commands.argument("lightX", FloatArgumentType.floatArg(-360.0F, 360.0F))
+                                                        .executes(context -> startWithAngles(context, false))
+                                                        .then(net.minecraft.commands.Commands.argument("lightY", FloatArgumentType.floatArg(-360.0F, 360.0F))
+                                                                .executes(context -> startWithAngles(context, false)))))))
+                        .then(net.minecraft.commands.Commands.argument("rotX", FloatArgumentType.floatArg(-360.0F, 360.0F))
+                                .executes(context -> startWithAngles(context, true))
+                                .then(net.minecraft.commands.Commands.argument("rotY", FloatArgumentType.floatArg(-360.0F, 360.0F))
+                                        .executes(context -> startWithAngles(context, true))
+                                        .then(net.minecraft.commands.Commands.argument("lightX", FloatArgumentType.floatArg(-360.0F, 360.0F))
+                                                .executes(context -> startWithAngles(context, true))
+                                                .then(net.minecraft.commands.Commands.argument("lightY", FloatArgumentType.floatArg(-360.0F, 360.0F))
+                                                        .executes(context -> startWithAngles(context, true)))))))
         );
+    }
+
+    /**
+     * Reads whichever of rotX/rotY/lightX/lightY were supplied (missing ones
+     * stay NaN so RenderImageExporter keeps their current values) and starts
+     * the export for either the given modid or "all".
+     */
+    private static int startWithAngles(
+            CommandContext<net.minecraft.commands.CommandSourceStack> context,
+            boolean noModid
+    ) {
+        String modId = noModid ? "all" : StringArgumentType.getString(context, "modid");
+        return RenderImageExporter.startExport(
+                modId,
+                optionalFloat(context, "rotX"),
+                optionalFloat(context, "rotY"),
+                optionalFloat(context, "lightX"),
+                optionalFloat(context, "lightY")
+        );
+    }
+
+    private static float optionalFloat(
+            CommandContext<net.minecraft.commands.CommandSourceStack> context,
+            String name
+    ) {
+        try {
+            return FloatArgumentType.getFloat(context, name);
+        } catch (IllegalArgumentException | com.mojang.brigadier.exceptions.CommandSyntaxException exception) {
+            return Float.NaN;
+        }
     }
 
     private static int runExport(CommandContext<net.minecraft.commands.CommandSourceStack> context,
