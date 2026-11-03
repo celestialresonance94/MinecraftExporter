@@ -12,10 +12,10 @@ import net.minecraft.core.RegistryAccess;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.item.Item;
-import net.neoforged.api.distmarker.Dist;
-import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.fml.common.EventBusSubscriber;
-import net.neoforged.neoforge.client.event.RegisterClientCommandsEvent;
+import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.eventbus.api.SubscribeEvent;
+import net.minecraftforge.fml.common.Mod;
+import net.minecraftforge.client.event.RegisterClientCommandsEvent;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -33,7 +33,6 @@ import java.util.TreeSet;
 import java.util.function.BiConsumer;
 
 import net.minecraft.locale.Language;
-import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.packs.resources.Resource;
 import net.minecraft.server.packs.resources.ResourceManager;
 import net.minecraft.network.chat.Component;
@@ -42,7 +41,7 @@ import com.mojang.brigadier.arguments.ArgumentType;
 import com.mojang.brigadier.StringReader;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 
-@EventBusSubscriber(
+@Mod.EventBusSubscriber(
         modid = "minecraftexporter",
         value = Dist.CLIENT
 )
@@ -202,11 +201,11 @@ public final class ExportCommands {
 
         var rootRegistry = net.minecraft.core.registries.BuiltInRegistries.REGISTRY;
 
-        for (var entry : rootRegistry.entrySet()) {
-            ResourceLocation key = entry.getKey().location();
-            Registry<?> registry = entry.getValue();
-
-            found.put(key, registry);
+        for (ResourceLocation key : rootRegistry.keySet()) {
+            Registry<?> registry = rootRegistry.get(key);
+            if (registry != null) {
+                found.put(key, registry);
+            }
         }
 
         // Include dynamic registries from the currently joined world.
