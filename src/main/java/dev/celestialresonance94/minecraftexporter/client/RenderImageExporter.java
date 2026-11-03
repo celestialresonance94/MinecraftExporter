@@ -19,7 +19,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
-import net.minecraftforge.client.event.ClientTickEvent;
+import net.minecraftforge.event.TickEvent;
 import org.joml.Matrix4f;
 import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL11;
@@ -141,11 +141,12 @@ public final class RenderImageExporter {
 
     /**
      * Process one image per client tick, matching Wiki Zoomer's queue-based exporter.
-     * Forge 1.20.1 fires ClientTickEvent with a phase (START/END); END runs after ticking.
+     * In Forge 1.20.1 the client tick event is TickEvent.ClientTickEvent (from
+     * net.minecraftforge.event), fired with a phase (START/END); END runs after ticking.
      */
     @SubscribeEvent
-    public static void onClientTick(ClientTickEvent event) {
-        if (event.phase != net.minecraftforge.client.event.ClientTickEvent.Phase.END) {
+    public static void onClientTick(TickEvent.ClientTickEvent event) {
+        if (event.phase != TickEvent.Phase.END) {
             return;
         }
         if (!running || renderQueued) {
