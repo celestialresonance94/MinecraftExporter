@@ -13,6 +13,7 @@ import net.minecraft.client.resources.model.BakedModel;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.util.Mth;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemDisplayContext;
 import net.minecraft.world.item.ItemStack;
@@ -307,6 +308,16 @@ public final class RenderImageExporter {
 
         BakedModel model = minecraft.getItemRenderer().getModel(stack, minecraft.level, null, 0);
         if (model.isGui3d()) {
+            // The block-item path in ItemRenderer applies a fixed +90 deg yaw
+            // because it assumes the vanilla GUI model-view matrix, which tilts
+            // and turns the cube toward the viewer. Our orthographic projection
+            // is screen-aligned instead, so that extra quarter turn leaves the
+            // object sideways and the directional light pointing the wrong way.
+            // Pre-rotating by -90 deg yaw cancels it: faces end up where the
+            // inventory preview shows them, and since Lighting's light vector
+            // is transformed by the same pose stack, shading rotates with the
+            // model and matches the corrected orientation.
+            poseStack.mulPose(new Matrix4f().rotationY(Mth.radians(-90.0F)));
             Lighting.setupFor3DItems();
         } else {
             Lighting.setupForFlatItems();
@@ -317,7 +328,7 @@ public final class RenderImageExporter {
         minecraft.getItemRenderer().render(
                 stack,
                 ItemDisplayContext.GUI,
-                true,
+                false,
                 poseStack,
                 bufferSource,
                 15728880,
