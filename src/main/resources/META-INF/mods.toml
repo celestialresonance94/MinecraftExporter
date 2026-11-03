@@ -1,4 +1,4 @@
-ModLoaderVersion=2
+modLoader="javafml"
 loaderVersion="${file_loader_version_range}"
 license="${file_license}"
 
