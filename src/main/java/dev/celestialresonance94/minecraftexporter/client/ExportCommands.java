@@ -5,13 +5,14 @@ import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.suggestion.SuggestionProvider;
+import com.mojang.brigadier.CommandDispatcher;
 import net.minecraft.command.CommandSource;
 import net.minecraft.command.ISuggestionProvider;
-import net.minecraft.command.RegisterCommandEvent;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.util.ResourceLocation;
 import net.minecraft.util.text.ITextComponent;
 import net.minecraft.util.text.StringTextComponent;
 import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.client.event.ClientCommandRegisterEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.registries.ForgeRegistries;
@@ -41,12 +42,13 @@ import com.mojang.brigadier.StringReader;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.resources.Language;
 import net.minecraft.resources.IResourceManager;
+import net.minecraft.resources.ResourceType;
 
 /**
  * Forge 1.16.5 port of the registry-name exporter.
  *
  * Notable version differences handled here:
- *  - Client commands register through {@link RegisterCommandEvent} with a
+ *  - Client commands register through {@link ClientCommandRegisterEvent} with a
  *    {@link CommandSource} source type (there is no CommandSourceStack and no
  *    RegisterClientCommandsEvent on 1.16.5).
  *  - Registries come from {@link ForgeRegistries} (BuiltInRegistries does not
@@ -119,12 +121,16 @@ public final class ExportCommands {
 
         @Override
         public ResourceLocation keyOf(Object value) {
-            return this.registry.getKey(value);
+            // The registry only accepts its own entry type; values come from
+            // getValues(), so the cast is safe.
+            @SuppressWarnings("unchecked")
+            T typedValue = (T) value;
+            return this.registry.getKey(typedValue);
         }
     }
 
     @SubscribeEvent
-    public static void registerClientCommands(RegisterCommandEvent event) {
+    public static void registerClientCommands(ClientCommandRegisterEvent event) {
         LiteralArgumentBuilder<CommandSource> root =
                 net.minecraft.command.Commands.literal("export")
                         .executes(context -> runExport(context, "all", "en_us", "all"));
@@ -145,10 +151,12 @@ public final class ExportCommands {
                                         StringArgumentType.getString(context, "language"),
                                         StringArgumentType.getString(context, "modid"))))));
 
-        event.getDispatcher().register(root);
+        CommandDispatcher<CommandSource> dispatcher = event.getDispatcher();
+
+        dispatcher.register(root);
 
         // Separate command for exporting rendered block and item previews.
-        event.getDispatcher().register(
+        dispatcher.register(
                 net.minecraft.command.Commands.literal("render")
                         .then(net.minecraft.command.Commands.argument("modid", StringArgumentType.word())
                                 .suggests(MOD_SUGGESTIONS)
@@ -203,7 +211,7 @@ public final class ExportCommands {
                 }
             }
 
-            Path exportDirectory = minecraft.gameDir.toPath().resolve("exports");
+            Path exportDirectory = minecraft.getFile("exports").toPath();
             Files.createDirectories(exportDirectory);
 
             String safeRegistry = requestedRegistry.equals("all")
@@ -226,7 +234,7 @@ public final class ExportCommands {
     private static void tell(ITextComponent message) {
         Minecraft minecraft = Minecraft.getInstance();
         if (minecraft.player != null) {
-            minecraft.player.sendMessage(message, false);
+            minecraft.player.sendMessage(message);
         }
     }
 
@@ -249,7 +257,9 @@ public final class ExportCommands {
         // Forge object registries (items, blocks, entity types, ...). On
         // 1.16.5 these also mirror all vanilla content, so the old
         // BuiltInRegistries / dynamic-registry walk is unnecessary.
-        for (IForgeRegistry<?> registry : ForgeRegistries.REGISTRIES.getValues()) {
+        // ForgeRegistries.REGISTRIES is an EmptyRegistry on this version;
+        // getRegistryIterator() yields every registered Forge registry.
+        for (IForgeRegistry<?> registry : ForgeRegistries.getRegistryIterator()) {
             ResourceLocation registryId = registry.getRegistryName();
             if (registryId != null) {
                 found.put(registryId, wrap(registry));
@@ -270,7 +280,7 @@ public final class ExportCommands {
 
         Minecraft minecraft = Minecraft.getInstance();
 
-        String language = minecraft.languageManager.getCurrentLanguage().getCode();
+        String language = minecraft.getLanguageCode();
         Map<String, String> translations;
 
         try {
@@ -332,7 +342,7 @@ public final class ExportCommands {
         TreeSet<String> codes = new TreeSet<>();
         codes.add("en_us");
         Minecraft minecraft = Minecraft.getInstance();
-        for (Language language : minecraft.languageManager.getLanguages()) {
+        for (Language language : minecraft.getLanguageManager().getLanguages()) {
             codes.add(language.getCode());
         }
         return new ArrayList<>(codes);
@@ -346,7 +356,7 @@ public final class ExportCommands {
         // Merge every namespace's copy of the file, vanilla first, so that
         // mod-provided entries layer over the base language like in-game.
         List<ResourceLocation> files = new ArrayList<>(
-                manager.getResourceLocations(net.minecraft.resource.ResourceType.CLIENT, path)
+                manager.getResourceLocations(ResourceType.CLIENT, path)
         );
         files.sort((a, b) -> Boolean.compare(
                 "minecraft".equals(a.getNamespace()), "minecraft".equals(b.getNamespace())));
