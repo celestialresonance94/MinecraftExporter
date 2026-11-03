@@ -1,7 +1,1 @@
-pluginManagement {
-    repositories {
-        gradlePluginPortal()
-        maven { url = 'https://maven.minecraftforge.net/' }
-    }
-}
-rootProject.name = 'MinecraftExporter-Forge-1.16.5'
+rootProject.name = 'MinecraftExporter-forge-1.16.5'
