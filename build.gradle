@@ -1,97 +1,46 @@
 plugins {
-    id 'eclipse'
-    id 'idea'
+    id 'java'
     id 'net.minecraftforge.gradle' version '[6.0,6.2)'
 }
 
-version = project.mod_version
 group = project.mod_group_id
+version = project.mod_version
 
 base {
     archivesName = project.mod_id
 }
 
-java.toolchain.languageVersion = JavaLanguageVersion.of(17)
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(17)
+}
 
 minecraft {
-    // Minecraft 1.20.1 / Forge 47.2.0
     mappings channel: 'official', version: '1.20.1'
-
     copyIdeResources = true
 
     runs {
         configureEach {
             workingDirectory project.file('run')
-            property 'forge.logging.markers', 'REGISTRIES'
             property 'forge.logging.console.level', 'debug'
-
             mods {
                 "${mod_id}" {
                     source sourceSets.main
                 }
             }
         }
-
-        client {
-            // client run configuration
-        }
-
-        server {
-            args '--nogui'
-        }
+        client {}
+        server {}
     }
 }
 
 repositories {
-    // Only needed for libraries that are not shipped with Forge.
-    // The maven.minecraftforge.net repo is provided automatically by the
-    // net.minecraftforge.gradle plugin, so we don't declare it (or any
-    // NeoForge repository) here.
+    mavenCentral()
 }
 
 dependencies {
-    // ForgeGradle 6 will download the Forge userdev artifact from
-    // maven.minecraftforge.net and generate the mapped artifact
-    // (forge-<mc>-<forge>_mapped_<channel>_<version>) itself.
-    // Note: 'forge' must be a String here; do NOT wrap it in a provider
-    // like forge('...') or lazyProviders.forge(...), otherwise FG6 cannot
-    // recognise the dependency and the mapped jar never gets produced.
     minecraft "net.minecraftforge:forge:${minecraft_version}-${forge_version}"
-}
-
-processResources {
-    inputs.property 'version', project.version
-
-    filesMatching('META-INF/mods.toml') {
-        expand(
-                file_loader_version_range: '[47,)',
-                file_license: project.mod_license,
-                file_mod_id: project.mod_id,
-                file_mod_version: project.mod_version,
-                file_mod_name: project.mod_name,
-                file_description: 'mod to export minecraft stuff. item names, block names, item images, and a bit more!',
-                file_forge_version_range: "[${forge_version},)",
-                file_minecraft_version_range: "[${minecraft_version}]"
-        )
-    }
 }
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
 }
-
-jar {
-    manifest {
-        attributes([
-                "Specification-Title"     : project.mod_id,
-                "Specification-Vendor"    : "celestialresonance94",
-                "Specification-Version"   : "1",
-                "Implementation-Title"    : project.mod_name,
-                "Implementation-Version"  : project.jar.archiveVersion,
-                "Implementation-Vendor"   : "celestialresonance94"
-        ])
-    }
-    archiveClassifier = ''
-}
-
-jar.finalizedBy('reobfJar')

@@ -1,23 +1,23 @@
 modLoader="javafml"
-loaderVersion="${file_loader_version_range}"
-license="${file_license}"
+loaderVersion="[47,)"
+license="GPL-3.0"
 
 [[mods]]
-modId="${file_mod_id}"
-version="${file_mod_version}"
-displayName="${file_mod_name}"
-description='''${file_description}'''
+modId="minecraftexporter"
+version="${file.jarVersion}"
+displayName="Minecraft Exporter"
+description='''mod to export minecraft stuff. item names, block names, item images, and more!'''
 
-[[dependencies.${file_mod_id}]]
-    modId="forge"
-    mandatory=true
-    versionRange="${file_forge_version_range}"
-    ordering="NONE"
-    side="BOTH"
+[[dependencies.minecraftexporter]]
+modId="forge"
+mandatory=true
+versionRange="[47,)"
+ordering="NONE"
+side="BOTH"
 
-[[dependencies.${file_mod_id}]]
-    modId="minecraft"
-    mandatory=true
-    versionRange="${file_minecraft_version_range}"
-    ordering="NONE"
-    side="BOTH"
+[[dependencies.minecraftexporter]]
+modId="minecraft"
+mandatory=true
+versionRange="[1.20.1,1.20.2)"
+ordering="NONE"
+side="BOTH"

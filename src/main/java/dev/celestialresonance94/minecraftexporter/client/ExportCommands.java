@@ -33,6 +33,7 @@ import java.util.TreeSet;
 import java.util.function.BiConsumer;
 
 import net.minecraft.locale.Language;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.packs.resources.Resource;
 import net.minecraft.server.packs.resources.ResourceManager;
 import net.minecraft.network.chat.Component;
@@ -201,11 +202,11 @@ public final class ExportCommands {
 
         var rootRegistry = net.minecraft.core.registries.BuiltInRegistries.REGISTRY;
 
-        for (ResourceLocation key : rootRegistry.keySet()) {
-            Registry<?> registry = rootRegistry.get(key);
-            if (registry != null) {
-                found.put(key, registry);
-            }
+        for (var entry : rootRegistry.entrySet()) {
+            ResourceLocation key = entry.getKey().location();
+            Registry<?> registry = entry.getValue();
+
+            found.put(key, registry);
         }
 
         // Include dynamic registries from the currently joined world.

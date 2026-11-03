@@ -44,33 +44,12 @@ import java.util.List;
  * exported into the items folder. No separate world-block rendering is performed.
  *
  * The off-screen rendering setup follows the pattern used by Wiki Zoomer
- * Unofficial's 1.20.1 Forge exporter (ExportManager): TextureTarget,
- * orthographic projection with Z compression, rotX/rotY camera pose,
- * usesBlockLight-based Lighting.setupFor3DItems/setupForFlatItems selection,
- * ItemRenderer.render in the GUI context, and OpenGL texture readback.
+ * Unofficial's 1.21.1 NeoForge exporter: TextureTarget, orthographic projection,
+ * ItemRenderer.render, and OpenGL texture readback.
  */
 @Mod.EventBusSubscriber(modid = "minecraftexporter", value = Dist.CLIENT)
 public final class RenderImageExporter {
     private static final int IMAGE_SIZE = 256;
-
-    // Two independent angle pairs, mirroring Wiki Zoomer's split between the
-    // camera pose (rotX/rotY) and the light direction (lightX/lightY).
-    // Edit these values directly in this file; there are no command-line flags.
-    //
-    //  - ITEM ROTATION (ROT_X/ROT_Y): applied to the model itself. Defaults to
-    //    Wiki Zoomer's item values (0/0), letting vanilla's GUI display context
-    //    supply the standard inventory orientation - flat sprites stay upright,
-    //    block items get vanilla's built-in cube tilt.
-    //
-    //  - LIGHT DIRECTION (LIGHT_X/LIGHT_Y): rotates ONLY the directional light
-    //    vectors before rendering, so shading changes without touching geometry.
-    //    At LIGHT_X = LIGHT_Y = 0 the light matrix is the identity and shading is
-    //    exactly vanilla's Lighting.setupFor3DItems(); nonzero angles rotate both
-    //    hardcoded light vectors via the shader's LIGHTING_MATRIX uniform.
-    private static final float ROT_X_DEGREES = 0.0F;
-    private static final float ROT_Y_DEGREES = 0.0F;
-    private static final float LIGHT_X_DEGREES = 0.0F;
-    private static final float LIGHT_Y_DEGREES = 0.0F;
 
     private static final Deque<RenderEntry> QUEUE = new ArrayDeque<>();
 
@@ -163,20 +142,14 @@ public final class RenderImageExporter {
 
     /**
      * Process one image per client tick, matching Wiki Zoomer's queue-based exporter.
-     * In Forge 1.20.1 the client tick event is TickEvent.ClientTickEvent (from
-     * net.minecraftforge.event), fired with a phase (START/END); END runs after ticking.
      */
     @SubscribeEvent
     public static void onClientTick(TickEvent.ClientTickEvent event) {
-        if (event.phase != TickEvent.Phase.END) {
-            return;
-        }
-        if (!running || renderQueued) {
-            return;
-        }
-
-        if (QUEUE.isEmpty()) {
-            finishExport();
+        if (event.phase != TickEvent.Phase.END) return;
+        if (!running || renderQueued || QUEUE.isEmpty()) {
+            if (running && QUEUE.isEmpty() && !renderQueued) {
+                finishExport();
+            }
             return;
         }
 
@@ -242,14 +215,13 @@ public final class RenderImageExporter {
 
             RenderSystem.viewport(0, 0, IMAGE_SIZE, IMAGE_SIZE);
             RenderSystem.clear(GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT, Minecraft.ON_OSX);
-            // Wiki Zoomer disables culling for export renders. With culling on,
-            // any model whose winding ends up reversed after our pose rotations
-            // disappears entirely or shows only one side, so follow its lead.
-            RenderSystem.disableCull();
+            // Keep back-face culling enabled. Disabling it allows the far side of
+            // translucent item models (for example glass blocks) to be drawn
+            // through the front face because translucent passes may not write depth.
+            RenderSystem.enableCull();
             RenderSystem.enableDepthTest();
             RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
 
-            // 1.20.1's RenderSystem requires a VertexSorting alongside the matrix.
             RenderSystem.setProjectionMatrix(
                     new Matrix4f().setOrtho(
                             0.0F, IMAGE_SIZE,
@@ -263,11 +235,6 @@ public final class RenderImageExporter {
             PoseStack poseStack = new PoseStack();
             poseStack.pushPose();
             poseStack.translate(0.0F, 0.0F, -2000.0F);
-            // Wiki Zoomer applies this Z compression between the screen-space
-            // translate and the item render. Without it, depth values written
-            // by rotated 3D block models fall outside the orthographic near/far
-            // range and the depth test rejects whole faces mid-rotation.
-            poseStack.scale(1.0F, 1.0F, 0.01F);
 
             renderItemCentered(
                     minecraft,
@@ -278,9 +245,6 @@ public final class RenderImageExporter {
             );
 
             bufferSource.endBatch();
-            // Restore the game's own lighting state before popping/returning,
-            // so subsequent in-game rendering is not left on the fixed-brightness
-            // setup we applied inside renderItemCentered.
             Lighting.setupFor3DItems();
             poseStack.popPose();
 
@@ -320,33 +284,6 @@ public final class RenderImageExporter {
         }
     }
 
-    /**
-     * Installs the directional lighting used for 3D (usesBlockLight) item
-     * renders, with the light direction rotatable independently of the model.
-     *
-     * Vanilla's Lighting.setupFor3DItems() hardcodes two directional lights:
-     *   GL_LIGHT0: (-0.2, 0.0, 0.1)  - the key light
-     *   GL_LIGHT1: (-0.4, 0.1, -0.3) - the softer back fill
-     * In 1.20.1 those constants are transformed by the LIGHTING_MATRIX uniform
-     * in the shaders (rendertype_* / particle .vsh):
-     *   gl_LightSource[0] = LIGHTING_MATRIX * vec4(-0.2, 0.0, 0.1, 0.0)
-     *   gl_LightSource[1] = LIGHTING_MATRIX * vec4(-0.4, 0.1, -0.3, 0.0)
-     * and RenderSystem._setLightMatrix0/_setLightMatrix1 populate that uniform
-     * from the supplied pose matrix (via LightUtil.pack). So passing a rotation
-     * here tilts ONLY the light vectors - never the geometry - which is the
-     * same split Wiki Zoomer uses between its rotX/rotY camera pose and its
-     * lightX/lightY session settings. At lightX = lightY = 0 the matrix is the
-     * identity and the shading is exactly Lighting.setupFor3DItems().
-     */
-    private static void applyExportLighting(float lightX, float lightY) {
-        Matrix4f lightRotation = new Matrix4f();
-        lightRotation.mul(Axis.XP.rotationDegrees(lightX));
-        lightRotation.mul(Axis.YP.rotationDegrees(lightY));
-
-        RenderSystem._setLightMatrix0(lightRotation);
-        RenderSystem._setLightMatrix1(lightRotation);
-    }
-
     private static void renderItemCentered(
             Minecraft minecraft,
             PoseStack poseStack,
@@ -354,42 +291,21 @@ public final class RenderImageExporter {
             ItemStack stack,
             int size
     ) {
-        // Wiki Zoomer uses zoomPercent * 1.92 with its default 100% zoom,
-        // which equals size * 0.96 in these screen-pixel units. This also
-        // leaves the small margin around the model that wiki images have.
-        float scale = size * 0.96F;
+        // Slightly larger than the previous default: the old scale left too much
+        // unused transparent space around most item models.
+        float scale = size * 0.75F;
 
         poseStack.pushPose();
         poseStack.translate(size / 2.0F, size / 2.0F, 100.0F);
         poseStack.scale(scale, -scale, scale);
 
-        // Item rotation only - controlled by ROT_X_DEGREES/ROT_Y_DEGREES above,
-        // completely independent from the light direction constants. At the
-        // default 0/0 this is an identity transform and vanilla's GUI context
-        // alone orients the model.
-        poseStack.mulPose(Axis.XP.rotationDegrees(ROT_X_DEGREES));
-        poseStack.mulPose(Axis.YP.rotationDegrees(ROT_Y_DEGREES));
-
         BakedModel model = minecraft.getItemRenderer().getModel(stack, minecraft.level, null, 0);
-
-        // Lighting selection copied from Wiki Zoomer: models that use block
-        // light (all gui-3d block items) get directional shading, flat sprites
-        // get uniform brightness. The light DIRECTION is then rotated by the
-        // independent LIGHT_X/LIGHT_Y constants (see applyExportLighting).
-        if (!model.usesBlockLight()) {
-            Lighting.setupForFlatItems();
+        if (model.usesBlockLight()) {
+            Lighting.setupFor3DItems();
         } else {
-            applyExportLighting(LIGHT_X_DEGREES, LIGHT_Y_DEGREES);
+            Lighting.setupForFlatItems();
         }
 
-        // Forge 1.20.1: ItemRenderer.render(ItemStack, ItemDisplayContext, boolean leftHanded,
-        // PoseStack, MultiBufferSource, int light, int overlay, BakedModel).
-        // GUI, exactly like Wiki Zoomer's call: vanilla then applies its own
-        // standard inventory transforms (the extra yaw for block-item cubes,
-        // sprite centering for flat items) on top of our explicit pose above.
-        // Sprite/override resolution is unaffected because
-        // ForgeHooksClient.handleRenderState already maps GUI to NONE when we
-        // fetched the baked model above.
         minecraft.getItemRenderer().render(
                 stack,
                 ItemDisplayContext.GUI,

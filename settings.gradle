@@ -4,9 +4,4 @@ pluginManagement {
         maven { url = 'https://maven.minecraftforge.net/' }
     }
 }
-
-plugins {
-    id 'org.gradle.toolchains.foojay-resolver-convention' version '0.5.0'
-}
-
-rootProject.name = 'RegistryNameExporter'
+rootProject.name = 'MinecraftExporter-Forge-1.20.1'
