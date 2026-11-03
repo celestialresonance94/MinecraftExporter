@@ -1,0 +1,23 @@
+ModLoaderVersion=2
+loaderVersion="${file_loader_version_range}"
+license="${file_license}"
+
+[[mods]]
+modId="${file_mod_id}"
+version="${file_mod_version}"
+displayName="${file_mod_name}"
+description='''${file_description}'''
+
+[[dependencies.${file_mod_id}]]
+    modId="forge"
+    mandatory=true
+    versionRange="${file_forge_version_range}"
+    ordering="NONE"
+    side="BOTH"
+
+[[dependencies.${file_mod_id}]]
+    modId="minecraft"
+    mandatory=true
+    versionRange="${file_minecraft_version_range}"
+    ordering="NONE"
+    side="BOTH"
